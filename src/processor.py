@@ -112,9 +112,11 @@ class BatchProcessor:
                     background_mode = self.settings.background_output_mode
                     background_result = remove_background(
                         output_image,
-                        alpha_matting=self.settings.enhancement_mode == "quality",
+                        alpha_matting=self.settings.enhancement_mode == "quality" and self.settings.background_model_name != "u2netp",
                         catalogue_layout=self.settings.catalogue_layout_enabled,
                         canvas_size=(self.settings.catalogue_canvas_width, self.settings.catalogue_canvas_height),
+                        max_side=self.settings.background_max_side,
+                        model_name=self.settings.background_model_name,
                     )
                     background_status = background_result.status
                     background_notes = background_result.notes

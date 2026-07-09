@@ -109,6 +109,34 @@ def test_processor_background_success_writes_white_and_transparent(tmp_path, mon
     assert report.iloc[0]["transparent_filename"] == "121134.png"
 
 
+def test_processor_passes_background_model_settings(tmp_path, monkeypatch):
+    photo = tmp_path / "IMG_001.jpg"
+    make_photo(photo)
+    engine = StaticOCREngine([OCRTextBox("121134", 0.95, bbox=[[0, 0], [200, 0], [200, 80], [0, 80]])])
+    captured = {}
+
+    def fake_remove_background(image, **kwargs):
+        captured.update(kwargs)
+        alpha = Image.new("L", (image.shape[1], image.shape[0]), 255)
+        rgba = Image.fromarray(image[:, :, ::-1]).convert("RGBA")
+        rgba.putalpha(alpha)
+        return BackgroundResult(BACKGROUND_OK, transparent_rgba=__import__("numpy").array(rgba), white_bgr=image, notes="Mock background OK.")
+
+    monkeypatch.setattr(processor_module, "remove_background", fake_remove_background)
+    settings = ProcessingSettings(
+        remove_background=True,
+        background_model_name="u2netp",
+        background_max_side=1600,
+        enhancement_mode="quality",
+    )
+    processor = BatchProcessor(tmp_path / "Jewellery_Output", settings, engine)
+    processor.process_images([photo])
+
+    assert captured["model_name"] == "u2netp"
+    assert captured["max_side"] == 1600
+    assert captured["alpha_matting"] is False
+
+
 def test_processor_background_review_routes_to_background_review(tmp_path, monkeypatch):
     photo = tmp_path / "IMG_001.jpg"
     make_photo(photo)

@@ -40,6 +40,8 @@ class ProcessingSettings:
     hd_scale: int = 2
     remove_background: bool = True
     background_output_mode: str = "white_and_transparent"
+    background_model_name: str = "u2net"
+    background_max_side: int = 2200
     catalogue_layout_enabled: bool = True
     catalogue_canvas_width: int = 1200
     catalogue_canvas_height: int = 1500

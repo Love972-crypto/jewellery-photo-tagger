@@ -30,9 +30,19 @@ from src.ui_components import (
 PROJECT_ROOT = Path(__file__).parent.resolve()
 
 
+def is_streamlit_cloud_runtime() -> bool:
+    return PROJECT_ROOT.as_posix().startswith("/mount/src/")
+
+
+def default_processing_settings() -> ProcessingSettings:
+    if is_streamlit_cloud_runtime():
+        return ProcessingSettings(background_model_name="u2netp", background_max_side=1600)
+    return ProcessingSettings()
+
+
 def init_state() -> None:
     defaults = {
-        "settings": ProcessingSettings(),
+        "settings": default_processing_settings(),
         "run_dir": None,
         "upload_dir": None,
         "output_root": None,
@@ -87,7 +97,7 @@ def prepare_uploads(uploaded_files) -> None:
 @st.cache_resource(show_spinner=False)
 def get_cached_ocr_engine():
     engine = build_ocr_engine(use_easyocr=True)
-    if hasattr(engine, "warm_up"):
+    if not is_streamlit_cloud_runtime() and hasattr(engine, "warm_up"):
         engine.warm_up()
     return engine
 
@@ -102,10 +112,6 @@ def download_mime_type(path: Path) -> str:
     if path.suffix.lower() == ".csv":
         return "text/csv"
     return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-
-
-def is_streamlit_cloud_runtime() -> bool:
-    return PROJECT_ROOT.as_posix().startswith("/mount/src/")
 
 
 def can_open_local_output_folder() -> bool:
@@ -154,6 +160,8 @@ def render_settings_page() -> None:
     )
     st.caption("Real-ESRGAN is disabled on this machine because it produced tiled/corrupt images. Safe HD uses deterministic upscale and controlled sharpening.")
     remove_background = st.toggle("Remove background", value=settings.remove_background)
+    background_model_name = "u2netp" if is_streamlit_cloud_runtime() else settings.background_model_name
+    background_max_side = 1600 if is_streamlit_cloud_runtime() else settings.background_max_side
     background_mode_labels = {
         "White + Transparent": "white_and_transparent",
         "White only": "white_only",
@@ -175,6 +183,8 @@ def render_settings_page() -> None:
         disabled=not remove_background,
     )
     st.caption("Background removal runs after OCR, so tag reading stays on the original enhanced photo.")
+    if is_streamlit_cloud_runtime():
+        st.caption("Cloud mode uses a lighter background model so the public app stays stable.")
     st.text_input("Output format", value="PNG", disabled=True)
     st.text_input("Duplicate file handling", value="Auto suffix, for example 121134_2.png", disabled=True)
     st.session_state.settings = ProcessingSettings(
@@ -187,6 +197,8 @@ def render_settings_page() -> None:
         hd_scale=2,
         remove_background=remove_background,
         background_output_mode=background_mode_labels[background_mode_label],
+        background_model_name=background_model_name,
+        background_max_side=background_max_side,
         catalogue_layout_enabled=catalogue_layout_enabled,
         catalogue_canvas_width=1200,
         catalogue_canvas_height=1500,
