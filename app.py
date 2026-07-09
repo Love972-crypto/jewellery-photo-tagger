@@ -16,7 +16,7 @@ from src.file_manager import (
 )
 from src.models import BatchSummary, ProcessingSettings
 from src.ocr_engine import build_ocr_engine
-from src.processor import BatchProcessor, apply_manual_correction
+from src.processor import BatchProcessor, apply_manual_correction, generate_transparent_outputs_for_processed
 from src.report_generator import read_report
 from src.ui_components import (
     FRIENDLY_STATUS,
@@ -203,6 +203,8 @@ def render_settings_page() -> None:
     st.caption("Background removal runs after OCR, so tag reading stays on the original enhanced photo.")
     if is_streamlit_cloud_runtime():
         st.caption("Cloud mode uses a memory-safe background model so the public app stays online.")
+    if remove_background:
+        st.caption("Transparent PNG copies are saved for successful background removal, even when daily output is white-background PNG.")
     st.text_input("Output format", value="PNG", disabled=True)
     st.text_input("Duplicate file handling", value="Auto suffix, for example 121134_2.png", disabled=True)
     st.session_state.settings = ProcessingSettings(
@@ -345,7 +347,7 @@ def render_review_page() -> None:
                 st.write(f"Confidence: {row.get('confidence_score', '') or '0'}")
                 corrected = st.text_input("Correct tag number", value=row.get("detected_tag_number", ""), key=f"correct_{original}")
                 if st.button("Save correction", key=f"save_{original}"):
-                    ok, message = apply_manual_correction(Path(output_root), original, corrected)
+                    ok, message = apply_manual_correction(Path(output_root), original, corrected, st.session_state.settings)
                     if ok:
                         st.success(message)
                         st.rerun()
@@ -404,27 +406,49 @@ def render_download_buttons(output_root: Path, compact: bool = False) -> None:
             os.startfile(str(paths.root))
             st.success("Output folder opened.")
 
+    transparent_ready = any(paths.transparent_images.glob("*.png"))
+    processed_ready = any(paths.processed_images.glob("*.png"))
     downloads = [
         ("Save full output ZIP to this computer", paths.full_zip, lambda: paths.full_zip.exists() and paths.report_csv.exists()),
         ("Save processed images ZIP to this computer", paths.processed_zip, lambda: any(paths.processed_images.glob("*.png"))),
-        ("Save transparent images ZIP to this computer", paths.transparent_zip, lambda: any(paths.transparent_images.glob("*.png"))),
         ("Save report.csv to this computer", paths.report_csv, lambda: paths.report_csv.exists() and paths.report_csv.stat().st_size > 0),
         ("Save debug crops ZIP to this computer", paths.debug_zip, lambda: any(paths.debug_crops.glob("*.png"))),
     ]
-    for label, path, is_available in downloads:
-        if path.exists() and path.stat().st_size > 0 and is_available():
-            stat = path.stat()
-            st.download_button(
-                label=f"{label} ({file_size_label(path)})",
-                data=read_download_bytes(str(path), stat.st_mtime_ns, stat.st_size),
-                file_name=path.name,
-                mime=download_mime_type(path),
-                type="primary",
-                width="stretch",
-                key=f"download-{path.name}-{stat.st_mtime_ns}-{stat.st_size}",
-            )
-        else:
-            st.caption(f"{path.name} is not available yet.")
+    render_single_download("Save full output ZIP to this computer", paths.full_zip, paths.full_zip.exists() and paths.report_csv.exists())
+    render_single_download("Save processed images ZIP to this computer", paths.processed_zip, processed_ready)
+    if transparent_ready:
+        render_single_download("Save transparent images ZIP to this computer", paths.transparent_zip, True)
+    elif processed_ready:
+        st.warning("Transparent ZIP abhi missing hai. Ye usually manual correction ya old White-only run ke baad hota hai.")
+        if st.button("Generate transparent ZIP for this batch", type="primary", width="stretch", key="repair-transparent-zip"):
+            with st.spinner("Creating transparent PNGs for this batch..."):
+                count, message = generate_transparent_outputs_for_processed(output_root, st.session_state.settings)
+            if count:
+                st.success(message)
+                st.rerun()
+            else:
+                st.warning(message)
+    else:
+        st.caption("transparent_images.zip is not available yet.")
+
+    for label, path, is_available in downloads[2:]:
+        render_single_download(label, path, is_available())
+
+
+def render_single_download(label: str, path: Path, is_available: bool) -> None:
+    if path.exists() and path.stat().st_size > 0 and is_available:
+        stat = path.stat()
+        st.download_button(
+            label=f"{label} ({file_size_label(path)})",
+            data=read_download_bytes(str(path), stat.st_mtime_ns, stat.st_size),
+            file_name=path.name,
+            mime=download_mime_type(path),
+            type="primary",
+            width="stretch",
+            key=f"download-{path.name}-{stat.st_mtime_ns}-{stat.st_size}",
+        )
+    else:
+        st.caption(f"{path.name} is not available yet.")
 
 
 def main() -> None:

@@ -142,7 +142,7 @@ class BatchProcessor:
 
                     if background_result.white_bgr is not None and background_mode in {"white_and_transparent", "white_only"}:
                         output_image = background_result.white_bgr
-                    if background_result.transparent_rgba is not None and background_mode == "white_and_transparent":
+                    if background_result.transparent_rgba is not None and background_mode in {"white_and_transparent", "white_only"}:
                         transparent_path, _ = unique_png_path(self.output_paths.transparent_images, parsed.tag_number)
                         save_rgba_png(background_result.transparent_rgba, transparent_path)
                         transparent_filename = transparent_path.name
@@ -250,7 +250,12 @@ class BatchProcessor:
         create_zip_from_folder(self.output_paths.root, self.output_paths.full_zip, exclude_zip_files=True)
 
 
-def apply_manual_correction(output_root: Path, original_filename: str, corrected_tag: str) -> tuple[bool, str]:
+def apply_manual_correction(
+    output_root: Path,
+    original_filename: str,
+    corrected_tag: str,
+    settings: ProcessingSettings | None = None,
+) -> tuple[bool, str]:
     corrected_tag = corrected_tag.strip()
     if not is_valid_manual_tag(corrected_tag):
         return False, "Enter a numeric tag number with 5 to 8 digits."
@@ -276,22 +281,129 @@ def apply_manual_correction(output_root: Path, original_filename: str, corrected
     if not source.exists():
         return False, "The review image file could not be found."
 
+    active_settings = settings or ProcessingSettings(remove_background=False)
+    background_status = BACKGROUND_DISABLED
+    background_mode = "none"
+    background_notes = "Background removal disabled."
+    transparent_filename = ""
+    output_folder = "processed_images"
     destination, duplicate = unique_png_path(paths.processed_images, corrected_tag)
-    shutil.move(str(source), str(destination))
     status = STATUS_DUPLICATE_TAG if duplicate else STATUS_OK
+    final_filename = destination.name
+    correction_notes = "Manual correction saved."
+
+    if active_settings.remove_background:
+        background_mode = active_settings.background_output_mode
+        try:
+            image = load_image(source)
+            background_result = remove_background(
+                image,
+                alpha_matting=(
+                    active_settings.enhancement_mode == "quality"
+                    and active_settings.background_model_name == "u2net"
+                    and active_settings.background_max_side >= 2000
+                ),
+                catalogue_layout=active_settings.catalogue_layout_enabled,
+                canvas_size=(active_settings.catalogue_canvas_width, active_settings.catalogue_canvas_height),
+                max_side=active_settings.background_max_side,
+                model_name=active_settings.background_model_name,
+            )
+            background_status = background_result.status
+            background_notes = background_result.notes
+            if background_result.status == BACKGROUND_OK and background_result.transparent_rgba is not None:
+                if background_mode == "transparent_only":
+                    destination, duplicate = unique_png_path(paths.transparent_images, corrected_tag)
+                    status = STATUS_DUPLICATE_TAG if duplicate else STATUS_OK
+                    save_rgba_png(background_result.transparent_rgba, destination)
+                    output_folder = "transparent_images"
+                    final_filename = destination.name
+                    transparent_filename = destination.name
+                else:
+                    save_png(background_result.white_bgr if background_result.white_bgr is not None else image, destination)
+                    transparent_path, _ = unique_png_path(paths.transparent_images, corrected_tag)
+                    save_rgba_png(background_result.transparent_rgba, transparent_path)
+                    transparent_filename = transparent_path.name
+                source.unlink(missing_ok=True)
+                correction_notes = "Manual correction saved with transparent output."
+            else:
+                shutil.move(str(source), str(destination))
+                correction_notes = "Manual correction saved. Background removal needs review."
+        except Exception as exc:
+            if source.exists():
+                shutil.move(str(source), str(destination))
+            background_status = BACKGROUND_FAILED
+            background_notes = f"Manual correction background failed: {exc}"
+            correction_notes = "Manual correction saved. Transparent output could not be generated."
+    else:
+        shutil.move(str(source), str(destination))
+
     update_report_row(
         paths.report_csv,
         original_filename,
         {
             "detected_tag_number": corrected_tag,
             "confidence_score": "manual",
-            "final_filename": destination.name,
-            "output_folder": "processed_images",
+            "final_filename": final_filename,
+            "output_folder": output_folder,
             "status": status,
-            "notes": "Manual correction saved.",
+            "notes": correction_notes,
+            "background_status": background_status,
+            "background_mode": background_mode,
+            "transparent_filename": transparent_filename,
+            "background_notes": background_notes,
         },
     )
     create_zip_from_folder(paths.processed_images, paths.processed_zip)
     create_zip_from_folder(paths.transparent_images, paths.transparent_zip)
     create_zip_from_folder(paths.root, paths.full_zip, exclude_zip_files=True)
-    return True, "Correction saved and image moved to processed images."
+    return True, correction_notes
+
+
+def generate_transparent_outputs_for_processed(output_root: Path, settings: ProcessingSettings) -> tuple[int, str]:
+    paths = setup_output_paths(output_root)
+    processed_images = sorted(paths.processed_images.glob("*.png"))
+    if not processed_images:
+        return 0, "No processed PNG images are available."
+
+    created = 0
+    failed = 0
+    report = read_report(paths.report_csv)
+    rows = report.to_dict("records") if not report.empty else []
+
+    for processed_path in processed_images:
+        target = paths.transparent_images / processed_path.name
+        if target.exists() and target.stat().st_size > 0:
+            continue
+        try:
+            image = load_image(processed_path)
+            background_result = remove_background(
+                image,
+                alpha_matting=False,
+                catalogue_layout=False,
+                canvas_size=(settings.catalogue_canvas_width, settings.catalogue_canvas_height),
+                max_side=settings.background_max_side,
+                model_name=settings.background_model_name,
+            )
+            if background_result.status != BACKGROUND_OK or background_result.transparent_rgba is None:
+                failed += 1
+                continue
+            save_rgba_png(background_result.transparent_rgba, target)
+            created += 1
+            for row in rows:
+                if str(row.get("final_filename", "")) == processed_path.name:
+                    row["transparent_filename"] = target.name
+                    row["background_status"] = background_result.status
+                    row["background_mode"] = "white_and_transparent"
+                    row["background_notes"] = background_result.notes
+        except Exception:
+            failed += 1
+
+    if rows:
+        write_report(rows, paths.report_csv)
+    create_zip_from_folder(paths.transparent_images, paths.transparent_zip)
+    create_zip_from_folder(paths.root, paths.full_zip, exclude_zip_files=True)
+    if created:
+        return created, f"Created {created} transparent image{'s' if created != 1 else ''}."
+    if failed:
+        return 0, "Transparent output could not be generated safely for this batch."
+    return 0, "Transparent images already exist."
