@@ -109,7 +109,7 @@ def test_processor_background_success_writes_white_and_transparent(tmp_path, mon
     assert report.iloc[0]["transparent_filename"] == "121134.png"
 
 
-def test_processor_passes_cloud_safe_u2net_settings(tmp_path, monkeypatch):
+def test_processor_passes_cloud_safe_background_settings(tmp_path, monkeypatch):
     photo = tmp_path / "IMG_001.jpg"
     make_photo(photo)
     engine = StaticOCREngine([OCRTextBox("121134", 0.95, bbox=[[0, 0], [200, 0], [200, 80], [0, 80]])])
@@ -125,14 +125,14 @@ def test_processor_passes_cloud_safe_u2net_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(processor_module, "remove_background", fake_remove_background)
     settings = ProcessingSettings(
         remove_background=True,
-        background_model_name="u2net",
+        background_model_name="u2netp",
         background_max_side=1800,
         enhancement_mode="quality",
     )
     processor = BatchProcessor(tmp_path / "Jewellery_Output", settings, engine)
     processor.process_images([photo])
 
-    assert captured["model_name"] == "u2net"
+    assert captured["model_name"] == "u2netp"
     assert captured["max_side"] == 1800
     assert captured["alpha_matting"] is False
 

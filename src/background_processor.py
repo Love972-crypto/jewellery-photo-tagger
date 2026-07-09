@@ -144,6 +144,9 @@ def _clean_alpha_matte(image_rgba: np.ndarray, source_bgr: np.ndarray | None = N
         object_mask, neutral_residue = _source_guided_masks(source_bgr, image_rgba.shape[:2], foreground)
         cleaned_alpha[object_mask] = np.maximum(cleaned_alpha[object_mask], 235)
         cleaned_alpha[neutral_residue & (cleaned_alpha < 252)] = 0
+        output_hsv = cv2.cvtColor(image_rgba[:, :, :3], cv2.COLOR_RGB2HSV)
+        output_dark_neutral = foreground & (output_hsv[:, :, 1] <= 112) & (output_hsv[:, :, 2] < 132)
+        cleaned_alpha[output_dark_neutral & (cleaned_alpha < 252)] = 0
         object_near_mask = _dilate_mask(object_mask, radius=max(5, int(min(image_rgba.shape[:2]) * 0.014)))
 
     keep_mask = _near_solid_mask(solid | object_mask, image_rgba.shape[:2]) | object_near_mask
@@ -176,13 +179,19 @@ def _source_guided_masks(source_bgr: np.ndarray, shape: tuple[int, int], foregro
     gold = (hue >= 10) & (hue <= 36) & (saturation >= 58) & (value >= 120)
     green = (hue >= 42) & (hue <= 98) & (saturation >= 48) & (value >= 52)
     red = ((hue <= 8) | (hue >= 165)) & (saturation >= 45) & (value >= 35)
-    object_color = gold | green | red
+    color_anchor = gold | green | red
+
+    anchor_near = _dilate_mask(color_anchor & foreground, radius=max(18, int(min(shape) * 0.034)))
+    light_detail = (saturation <= 58) & (value >= 148) & anchor_near
+    dark_print_or_shadow = (value < 95) & (saturation <= 118) & _dilate_mask(light_detail | color_anchor, radius=3)
+    object_color = color_anchor | light_detail | dark_print_or_shadow
 
     restore_area = _dilate_mask(foreground, radius=max(14, int(min(shape) * 0.026))) | _fill_mask_holes(foreground)
     object_mask = object_color & restore_area
-    object_near = _dilate_mask(object_mask, radius=max(7, int(min(shape) * 0.018)))
+    object_near = _dilate_mask(object_mask, radius=max(5, int(min(shape) * 0.012)))
     neutral_floor = ((saturation <= 72) & (value < 230)) | (value < 88)
-    neutral_residue = foreground & neutral_floor & ~object_near
+    dark_floor_noise = (value < 96) & (saturation <= 118) & ~dark_print_or_shadow
+    neutral_residue = foreground & ((neutral_floor & ~object_near) | dark_floor_noise)
     return object_mask, neutral_residue
 
 
@@ -268,7 +277,9 @@ def _catalogue_portrait_outputs(image_rgba: np.ndarray, canvas_size: tuple[int, 
 
 def _foreground_crop(image_rgba: np.ndarray) -> np.ndarray:
     alpha = image_rgba[:, :, 3]
-    coords = np.argwhere(alpha > 8)
+    coords = np.argwhere(alpha > 36)
+    if coords.size == 0:
+        coords = np.argwhere(alpha > 8)
     if coords.size == 0:
         return image_rgba
 
@@ -363,7 +374,7 @@ def _validate_alpha_mask(alpha: np.ndarray) -> tuple[bool, str]:
         return False, f"Mask is too uncertain around edges ({soft_ratio:.1%})."
 
     components = _foreground_component_count(alpha)
-    if components > 160:
+    if components > 32:
         return False, f"Foreground mask is too fragmented ({components} components)."
 
     return True, f"Mask OK. Foreground {foreground_ratio:.1%}."

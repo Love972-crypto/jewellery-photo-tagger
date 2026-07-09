@@ -29,7 +29,7 @@ from src.ui_components import (
 )
 
 PROJECT_ROOT = Path(__file__).parent.resolve()
-CLOUD_BACKGROUND_MODEL_NAME = "u2net"
+CLOUD_BACKGROUND_MODEL_NAME = "u2netp"
 CLOUD_BACKGROUND_MAX_SIDE = 1800
 
 
@@ -202,7 +202,7 @@ def render_settings_page() -> None:
     )
     st.caption("Background removal runs after OCR, so tag reading stays on the original enhanced photo.")
     if is_streamlit_cloud_runtime():
-        st.caption("Cloud mode uses the same high-quality u2net model with memory-safe sizing.")
+        st.caption("Cloud mode uses a memory-safe background model so the public app stays online.")
     st.text_input("Output format", value="PNG", disabled=True)
     st.text_input("Duplicate file handling", value="Auto suffix, for example 121134_2.png", disabled=True)
     st.session_state.settings = ProcessingSettings(
