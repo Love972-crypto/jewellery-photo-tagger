@@ -177,7 +177,7 @@ def test_generate_transparent_outputs_for_processed_backfills_missing_zip(tmp_pa
     assert (output_root / "transparent_images.zip").exists()
 
 
-def test_processor_passes_cloud_safe_background_settings(tmp_path, monkeypatch):
+def test_processor_passes_full_quality_background_settings(tmp_path, monkeypatch):
     photo = tmp_path / "IMG_001.jpg"
     make_photo(photo)
     engine = StaticOCREngine([OCRTextBox("121134", 0.95, bbox=[[0, 0], [200, 0], [200, 80], [0, 80]])])
@@ -193,16 +193,16 @@ def test_processor_passes_cloud_safe_background_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(processor_module, "remove_background", fake_remove_background)
     settings = ProcessingSettings(
         remove_background=True,
-        background_model_name="u2netp",
-        background_max_side=1800,
+        background_model_name="u2net",
+        background_max_side=2200,
         enhancement_mode="quality",
     )
     processor = BatchProcessor(tmp_path / "Jewellery_Output", settings, engine)
     processor.process_images([photo])
 
-    assert captured["model_name"] == "u2netp"
-    assert captured["max_side"] == 1800
-    assert captured["alpha_matting"] is False
+    assert captured["model_name"] == "u2net"
+    assert captured["max_side"] == 2200
+    assert captured["alpha_matting"] is True
 
 
 def test_processor_uses_alpha_matting_for_full_quality_u2net(tmp_path, monkeypatch):
