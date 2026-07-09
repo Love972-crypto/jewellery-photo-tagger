@@ -112,7 +112,7 @@ class BatchProcessor:
                     background_mode = self.settings.background_output_mode
                     background_result = remove_background(
                         output_image,
-                        alpha_matting=self.settings.enhancement_mode == "quality" and self.settings.background_model_name != "u2netp",
+                        alpha_matting=self._background_alpha_matting_enabled(),
                         catalogue_layout=self.settings.catalogue_layout_enabled,
                         canvas_size=(self.settings.catalogue_canvas_width, self.settings.catalogue_canvas_height),
                         max_side=self.settings.background_max_side,
@@ -192,6 +192,13 @@ class BatchProcessor:
                 status="ERROR",
                 notes=f"This photo could not be processed. Please check it manually. {exc}",
             )
+
+    def _background_alpha_matting_enabled(self) -> bool:
+        return (
+            self.settings.enhancement_mode == "quality"
+            and self.settings.background_model_name == "u2net"
+            and self.settings.background_max_side >= 2000
+        )
 
     def _run_ocr(self, crops) -> tuple[list[OCRTextBox], list[str]]:
         all_boxes: list[OCRTextBox] = []
