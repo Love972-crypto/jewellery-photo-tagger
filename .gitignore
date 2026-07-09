@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments and editor state
+.venv/
+.idea/
+.vscode/
+
+# Runtime uploads, outputs, reports, and logs
+.runtime/
+Jewellery_Output/
+*.log
+
+# Large generated/sample datasets
+sample_data/**
+!sample_data/README.md
+
+# Local model caches and binary tool drops
+*.onnx
+tools/*.dll
+tools/*.exe
+tools/*.zip
+tools/*.jpg
+tools/*.jpeg
+tools/*.png
+tools/*.mp4
+tools/models/
+tools/realesrgan-ncnn-vulkan/
+
+# OS noise
+Thumbs.db
+.DS_Store

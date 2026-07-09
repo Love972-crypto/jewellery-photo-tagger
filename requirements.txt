@@ -1,0 +1,9 @@
+streamlit==1.59.1
+opencv-python==5.0.0.93
+easyocr==1.7.2
+pandas==3.0.3
+pillow==12.3.0
+pillow-heif==1.4.0
+pytest==9.1.1
+numpy==2.4.6
+rembg[cpu]==2.0.76
