@@ -84,22 +84,6 @@ def apply_theme() -> None:
         .process-panel.ready { border-color: rgba(183,137,53,0.24); }
         .process-panel strong { display: block; font-size: 1rem; margin-bottom: 4px; }
         .process-panel span { color: var(--muted); font-size: 0.94rem; line-height: 1.5; }
-        .direct-download {
-          display: block;
-          width: 100%;
-          box-sizing: border-box;
-          margin: 10px 0;
-          padding: 13px 16px;
-          border-radius: 8px;
-          border: 1px solid rgba(183,137,53,0.35);
-          background: #ff4b4b;
-          color: #fff !important;
-          text-align: center;
-          text-decoration: none !important;
-          font-weight: 760;
-          box-shadow: 0 12px 28px rgba(255,75,75,0.18);
-        }
-        .direct-download:hover { filter: brightness(0.97); }
         .dashboard-canvas {
           position: relative;
           overflow: hidden;

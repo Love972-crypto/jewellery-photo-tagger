@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import mimetypes
 import os
 from pathlib import Path
 
 import streamlit as st
 
-from src.download_server import download_url, start_download_server
 from src.file_manager import (
     create_run_workspace,
     file_size_label,
@@ -92,9 +92,20 @@ def get_cached_ocr_engine():
     return engine
 
 
-@st.cache_resource(show_spinner=False)
-def get_download_server():
-    return start_download_server(PROJECT_ROOT)
+@st.cache_data(show_spinner=False)
+def read_download_bytes(path_text: str, mtime_ns: int, size: int) -> bytes:
+    del mtime_ns, size
+    return Path(path_text).read_bytes()
+
+
+def download_mime_type(path: Path) -> str:
+    if path.suffix.lower() == ".csv":
+        return "text/csv"
+    return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+
+def is_desktop_output_folder_supported() -> bool:
+    return hasattr(os, "startfile")
 
 
 def render_upload_page() -> None:
@@ -347,13 +358,14 @@ def render_download_page() -> None:
 
 def render_download_buttons(output_root: Path, compact: bool = False) -> None:
     paths = rebuild_output_archives(output_root)
-    server = get_download_server()
     if not compact:
         st.caption("Output folder")
         st.code(str(paths.root))
-        if st.button("Open output folder", type="primary", width="stretch"):
+        if is_desktop_output_folder_supported() and st.button("Open output folder", type="primary", width="stretch"):
             os.startfile(str(paths.root))
             st.success("Output folder opened.")
+        elif not is_desktop_output_folder_supported():
+            st.caption("Cloud par output temporary storage me banta hai. Neeche buttons se files download karo.")
 
     downloads = [
         ("Download full output ZIP", paths.full_zip, lambda: paths.full_zip.exists() and paths.report_csv.exists()),
@@ -364,10 +376,15 @@ def render_download_buttons(output_root: Path, compact: bool = False) -> None:
     ]
     for label, path, is_available in downloads:
         if path.exists() and path.stat().st_size > 0 and is_available():
-            href = download_url(server, path)
-            st.markdown(
-                f'<a class="direct-download" href="{href}" download="{path.name}">{label} ({file_size_label(path)})</a>',
-                unsafe_allow_html=True,
+            stat = path.stat()
+            st.download_button(
+                label=f"{label} ({file_size_label(path)})",
+                data=read_download_bytes(str(path), stat.st_mtime_ns, stat.st_size),
+                file_name=path.name,
+                mime=download_mime_type(path),
+                type="primary",
+                width="stretch",
+                key=f"download-{path.name}-{stat.st_mtime_ns}-{stat.st_size}",
             )
         else:
             st.caption(f"{path.name} is not available yet.")
