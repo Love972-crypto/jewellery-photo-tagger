@@ -104,8 +104,12 @@ def download_mime_type(path: Path) -> str:
     return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
 
 
-def is_desktop_output_folder_supported() -> bool:
-    return hasattr(os, "startfile")
+def is_streamlit_cloud_runtime() -> bool:
+    return PROJECT_ROOT.as_posix().startswith("/mount/src/")
+
+
+def can_open_local_output_folder() -> bool:
+    return os.name == "nt" and hasattr(os, "startfile") and not is_streamlit_cloud_runtime()
 
 
 def render_upload_page() -> None:
@@ -359,20 +363,23 @@ def render_download_page() -> None:
 def render_download_buttons(output_root: Path, compact: bool = False) -> None:
     paths = rebuild_output_archives(output_root)
     if not compact:
-        st.caption("Output folder")
-        st.code(str(paths.root))
-        if is_desktop_output_folder_supported() and st.button("Open output folder", type="primary", width="stretch"):
+        st.subheader("Save to this computer")
+        if can_open_local_output_folder():
+            st.caption("Local output folder")
+            st.code(str(paths.root))
+        else:
+            st.caption("Cloud output ready hai. Neeche buttons se files apne computer par save karo.")
+
+        if can_open_local_output_folder() and st.button("Open output folder", type="secondary", width="stretch"):
             os.startfile(str(paths.root))
             st.success("Output folder opened.")
-        elif not is_desktop_output_folder_supported():
-            st.caption("Cloud par output temporary storage me banta hai. Neeche buttons se files download karo.")
 
     downloads = [
-        ("Download full output ZIP", paths.full_zip, lambda: paths.full_zip.exists() and paths.report_csv.exists()),
-        ("Download processed images ZIP", paths.processed_zip, lambda: any(paths.processed_images.glob("*.png"))),
-        ("Download transparent images ZIP", paths.transparent_zip, lambda: any(paths.transparent_images.glob("*.png"))),
-        ("Download report.csv", paths.report_csv, lambda: paths.report_csv.exists() and paths.report_csv.stat().st_size > 0),
-        ("Download debug crops ZIP", paths.debug_zip, lambda: any(paths.debug_crops.glob("*.png"))),
+        ("Save full output ZIP to this computer", paths.full_zip, lambda: paths.full_zip.exists() and paths.report_csv.exists()),
+        ("Save processed images ZIP to this computer", paths.processed_zip, lambda: any(paths.processed_images.glob("*.png"))),
+        ("Save transparent images ZIP to this computer", paths.transparent_zip, lambda: any(paths.transparent_images.glob("*.png"))),
+        ("Save report.csv to this computer", paths.report_csv, lambda: paths.report_csv.exists() and paths.report_csv.stat().st_size > 0),
+        ("Save debug crops ZIP to this computer", paths.debug_zip, lambda: any(paths.debug_crops.glob("*.png"))),
     ]
     for label, path, is_available in downloads:
         if path.exists() and path.stat().st_size > 0 and is_available():
