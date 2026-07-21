@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 
 from .image_enhancement import save_png
+from .models import OCRTextBox
 
 
 @dataclass
@@ -163,3 +164,253 @@ def save_debug_crops(crops: list[CandidateCrop], original_stem: str, debug_dir: 
         save_png(candidate.image, path)
         saved.append(path)
     return saved
+
+
+def build_tag_preservation_mask(
+    image_shape: tuple[int, int],
+    boxes: list[OCRTextBox],
+    tag_number: str,
+    crops: list[CandidateCrop] | None = None,
+    source_image: np.ndarray | None = None,
+) -> np.ndarray | None:
+    height, width = image_shape
+    anchors = [
+        box
+        for box in boxes
+        if box.bbox
+        and box.source_crop == "fallback_full"
+        and tag_number in "".join(character for character in box.text if character.isdigit())
+    ]
+    if not anchors:
+        return None
+
+    anchor = max(anchors, key=lambda item: item.confidence)
+    anchor_points = _map_ocr_points_to_original(anchor.bbox, anchor.source_rotation, width, height)
+    if anchor_points.size == 0:
+        return None
+
+    selected_points = [anchor_points]
+    anchor_center = np.mean(anchor_points, axis=0)
+    anchor_span = max(float(np.ptp(anchor_points[:, 0])), float(np.ptp(anchor_points[:, 1])), 1.0)
+    nearby_distance = max(anchor_span * 3.0, min(width, height) * 0.28)
+
+    for box in boxes:
+        digits = "".join(character for character in box.text if character.isdigit())
+        if box is anchor or not box.bbox or len(digits) < 9:
+            continue
+        if box.source_crop != anchor.source_crop or box.source_rotation != anchor.source_rotation:
+            continue
+        points = _map_ocr_points_to_original(box.bbox, box.source_rotation, width, height)
+        if points.size == 0:
+            continue
+        if float(np.linalg.norm(np.mean(points, axis=0) - anchor_center)) <= nearby_distance:
+            selected_points.append(points)
+
+    all_points = np.vstack(selected_points).astype(np.float32)
+    center, size, angle = cv2.minAreaRect(all_points)
+    rect_width, rect_height = size
+    has_companion = len(selected_points) > 1
+    if rect_width >= rect_height:
+        width_factor, height_factor = ((1.35, 1.75) if has_companion else (2.2, 3.0))
+    else:
+        width_factor, height_factor = ((1.75, 1.35) if has_companion else (3.0, 2.2))
+    expanded_size = (
+        min(rect_width * width_factor, width * 0.48),
+        min(rect_height * height_factor, height * 0.28),
+    )
+    polygon = cv2.boxPoints((center, expanded_size, angle)).astype(np.int32)
+    polygon[:, 0] = np.clip(polygon[:, 0], 0, width - 1)
+    polygon[:, 1] = np.clip(polygon[:, 1], 0, height - 1)
+
+    mask = np.zeros((height, width), dtype=np.uint8)
+    cv2.fillConvexPoly(mask, polygon, 255)
+
+    # OCR usually identifies only the printed digits. When the rectangular tag
+    # detector found the physical tag, prefer that tight shape over the broad
+    # OCR fallback so nearby table/background pixels are not forced into output.
+    anchor_x, anchor_y = float(anchor_center[0]), float(anchor_center[1])
+    containing_crops: list[CandidateCrop] = []
+    for crop in crops or []:
+        if crop.bbox is None or crop.label.startswith("fallback"):
+            continue
+        x, y, box_width, box_height = crop.bbox
+        margin_x = max(4, int(box_width * 0.08))
+        margin_y = max(4, int(box_height * 0.08))
+        if (
+            x - margin_x <= anchor_x <= x + box_width + margin_x
+            and y - margin_y <= anchor_y <= y + box_height + margin_y
+        ):
+            containing_crops.append(crop)
+
+    shape_candidate: CandidateCrop | None = None
+    if containing_crops:
+        candidate = min(
+            containing_crops,
+            key=lambda item: item.bbox[2] * item.bbox[3] if item.bbox else float("inf"),
+        )
+        shape_candidate = candidate
+    elif source_image is not None and source_image.size:
+        # OCR fallback boxes describe printed digits, not the physical tag. Use
+        # the broad geometry only as a search window, then isolate the actual
+        # bright tag shape. Never return that broad rectangle as foreground.
+        fallback_x, fallback_y, fallback_width, fallback_height = cv2.boundingRect(polygon)
+        if fallback_width > 0 and fallback_height > 0:
+            shape_candidate = CandidateCrop(
+                "fallback_refine_physical_tag",
+                source_image[
+                    fallback_y : fallback_y + fallback_height,
+                    fallback_x : fallback_x + fallback_width,
+                ].copy(),
+                anchor.confidence,
+                (fallback_x, fallback_y, fallback_width, fallback_height),
+            )
+
+    if shape_candidate is not None:
+        detected_shape = _detected_tag_shape_mask(source_image, shape_candidate, (anchor_x, anchor_y))
+        if detected_shape is not None:
+            return detected_shape
+    if source_image is not None:
+        return None
+    return mask
+
+
+def _detected_tag_shape_mask(
+    source_image: np.ndarray | None,
+    candidate: CandidateCrop,
+    anchor_center: tuple[float, float],
+) -> np.ndarray | None:
+    if source_image is None or source_image.size == 0 or candidate.bbox is None:
+        return None
+
+    image_height, image_width = source_image.shape[:2]
+    x, y, box_width, box_height = candidate.bbox
+    x0, y0 = max(0, x), max(0, y)
+    x1, y1 = min(image_width, x + box_width), min(image_height, y + box_height)
+    if x1 <= x0 or y1 <= y0:
+        return None
+
+    roi = source_image[y0:y1, x0:x1]
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    saturation = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)[:, :, 1]
+    if candidate.label == "fallback_refine_physical_tag":
+        otsu_threshold, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        gray_min = max(180, min(235, int(round(otsu_threshold))))
+        saturation_max = 105
+    elif "strict_white" in candidate.label:
+        gray_min, saturation_max = 218, 100
+    elif "white_low_sat" in candidate.label:
+        gray_min, saturation_max = 198, 112
+    elif "soft_tag" in candidate.label:
+        gray_min, saturation_max = 180, 105
+    else:
+        gray_min, saturation_max = 165, 125
+
+    light = (gray >= gray_min) & (saturation <= saturation_max)
+    light_mask = light.astype(np.uint8) * 255
+    kernel_size = max(3, int(round(min(box_width, box_height) * 0.035)))
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
+    light_mask = cv2.morphologyEx(light_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    contours, _ = cv2.findContours(light_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    local_anchor = np.asarray([anchor_center[0] - x0, anchor_center[1] - y0], dtype=np.float32)
+
+    def contour_rank(contour: np.ndarray) -> tuple[int, float, float]:
+        inside = int(cv2.pointPolygonTest(contour, tuple(local_anchor), False) >= 0)
+        moments = cv2.moments(contour)
+        if moments["m00"]:
+            center = np.asarray(
+                [moments["m10"] / moments["m00"], moments["m01"] / moments["m00"]],
+                dtype=np.float32,
+            )
+            distance = float(np.linalg.norm(center - local_anchor))
+        else:
+            distance = float("inf")
+        return inside, -distance, float(cv2.contourArea(contour))
+
+    contour = max(contours, key=contour_rank)
+    if cv2.contourArea(contour) < max(80.0, box_width * box_height * 0.08):
+        return None
+
+    # Preserve the physical silhouette, not its rotated bounding rectangle.
+    # A rectangle fills tag notches/corners with floor pixels and creates the
+    # brown block seen beside otherwise clean catalogue cutouts.
+    local_shape = np.zeros_like(light_mask)
+    cv2.drawContours(local_shape, [contour], -1, 255, thickness=cv2.FILLED)
+    edge_pad = max(2, int(round(min(box_width, box_height) * 0.015)))
+    edge_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (edge_pad * 2 + 1, edge_pad * 2 + 1),
+    )
+    local_shape = cv2.dilate(local_shape, edge_kernel, iterations=1)
+    shape_mask = np.zeros((image_height, image_width), dtype=np.uint8)
+    shape_mask[y0:y1, x0:x1] = local_shape
+    return shape_mask
+
+
+def build_detected_tag_preservation_mask(
+    image_shape: tuple[int, int],
+    crops: list[CandidateCrop],
+    source_image: np.ndarray | None = None,
+    preferred_label: str = "",
+) -> np.ndarray | None:
+    """Preserve the strongest detected tag when OCR needs manual correction."""
+    detected = [crop for crop in crops if crop.bbox is not None and not crop.label.startswith("fallback")]
+    if not detected:
+        return None
+
+    if preferred_label:
+        preferred = [crop for crop in detected if crop.label == preferred_label]
+        if not preferred:
+            return None
+        detected = preferred
+
+    height, width = image_shape
+    candidate = max(detected, key=lambda item: item.score)
+    x, y, box_width, box_height = candidate.bbox
+    if source_image is not None and source_image.size:
+        tight_shape = _detected_tag_shape_mask(
+            source_image,
+            candidate,
+            (x + box_width / 2.0, y + box_height / 2.0),
+        )
+        if tight_shape is not None:
+            return tight_shape
+        return None
+
+    pad_x = max(10, int(box_width * 0.18))
+    pad_y = max(10, int(box_height * 0.24))
+    x0 = max(0, x - pad_x)
+    y0 = max(0, y - pad_y)
+    x1 = min(width, x + box_width + pad_x)
+    y1 = min(height, y + box_height + pad_y)
+    if x1 <= x0 or y1 <= y0:
+        return None
+
+    mask = np.zeros((height, width), dtype=np.uint8)
+    mask[y0:y1, x0:x1] = 255
+    return mask
+
+
+def _map_ocr_points_to_original(bbox, rotation: str, width: int, height: int) -> np.ndarray:
+    try:
+        points = np.asarray(bbox, dtype=np.float32).reshape(-1, 2)
+    except Exception:
+        return np.empty((0, 2), dtype=np.float32)
+
+    mapped = points.copy()
+    if rotation == "rot180":
+        mapped[:, 0] = (width - 1) - points[:, 0]
+        mapped[:, 1] = (height - 1) - points[:, 1]
+    elif rotation == "cw90":
+        mapped[:, 0] = points[:, 1]
+        mapped[:, 1] = (height - 1) - points[:, 0]
+    elif rotation == "ccw90":
+        mapped[:, 0] = (width - 1) - points[:, 1]
+        mapped[:, 1] = points[:, 0]
+    mapped[:, 0] = np.clip(mapped[:, 0], 0, width - 1)
+    mapped[:, 1] = np.clip(mapped[:, 1], 0, height - 1)
+    return mapped

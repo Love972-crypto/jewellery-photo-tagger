@@ -31,6 +31,11 @@ tools/*.mp4
 tools/models/
 tools/realesrgan-ncnn-vulkan/
 
+# Generated Windows runtime payload. Keep only its checksum contract in source;
+# the signed installer and portable runtime are injected into release builds.
+packaging/windows/runtime/*
+!packaging/windows/runtime/python-runtime-manifest.json
+
 # OS noise
 Thumbs.db
 .DS_Store

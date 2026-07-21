@@ -41,6 +41,7 @@ def apply_theme() -> None:
           --rose: #c43b74;
         }
         .stApp { background: radial-gradient(circle at 18% 0%, #fff9ed 0, #f7f5f1 34%, #f2f0ec 100%); color: var(--ink); }
+        div[data-testid="stAppDeployButton"] { display: none !important; }
         section[data-testid="stSidebar"] { background: rgba(255,255,255,0.74); border-right: 1px solid var(--border); }
         section[data-testid="stSidebar"] * { color: #28231e; }
         .block-container { padding-top: 1.3rem; max-width: 1320px; }
@@ -84,6 +85,22 @@ def apply_theme() -> None:
         .process-panel.ready { border-color: rgba(183,137,53,0.24); }
         .process-panel strong { display: block; font-size: 1rem; margin-bottom: 4px; }
         .process-panel span { color: var(--muted); font-size: 0.94rem; line-height: 1.5; }
+        .direct-download {
+          display: block;
+          width: 100%;
+          box-sizing: border-box;
+          margin: 10px 0;
+          padding: 13px 16px;
+          border-radius: 8px;
+          border: 1px solid rgba(183,137,53,0.35);
+          background: #ff4b4b;
+          color: #fff !important;
+          text-align: center;
+          text-decoration: none !important;
+          font-weight: 760;
+          box-shadow: 0 12px 28px rgba(255,75,75,0.18);
+        }
+        .direct-download:hover { filter: brightness(0.97); }
         .dashboard-canvas {
           position: relative;
           overflow: hidden;

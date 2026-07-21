@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "name": "EasyOCR CRAFT detector",
+      "relative_path": "EasyOCR/model/craft_mlt_25k.pth",
+      "size": 83152330,
+      "sha256": "4A5EFBFB48B4081100544E75E1E2B57F8DE3D84F213004B14B85FD4B3748DB17",
+      "source_path": ".EasyOCR/model/craft_mlt_25k.pth"
+    },
+    {
+      "name": "EasyOCR English recognizer",
+      "relative_path": "EasyOCR/model/english_g2.pth",
+      "size": 15143997,
+      "sha256": "E2272681D9D67A04E2DFF396B6E95077BC19001F8F6D3593C307B9852E1C29E8",
+      "source_path": ".EasyOCR/model/english_g2.pth"
+    },
+    {
+      "name": "rembg u2net",
+      "relative_path": "u2net/u2net.onnx",
+      "size": 175997641,
+      "sha256": "8D10D2F3BB75AE3B6D527C77944FC5E7DCD94B29809D47A739A7A728A912B491",
+      "source_path": ".u2net/u2net.onnx"
+    },
+    {
+      "name": "rembg BiRefNet general lite",
+      "relative_path": "u2net/birefnet-general-lite.onnx",
+      "size": 224005088,
+      "sha256": "5600024376F572A557870A5EB0AFB1E5961636BEF4E1E22132025467D0F03333",
+      "source_path": ".u2net/birefnet-general-lite.onnx"
+    }
+  ]
+}

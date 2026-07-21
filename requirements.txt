@@ -1,5 +1,5 @@
 streamlit==1.59.1
-opencv-python-headless==5.0.0.93
+opencv-python==5.0.0.93
 easyocr==1.7.2
 pandas==3.0.3
 pillow==12.3.0

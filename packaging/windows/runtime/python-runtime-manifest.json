@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "python_version": "3.14.6",
+  "required_series": "3.14",
+  "architecture": "64bit",
+  "installer": "python-3.14.6-amd64.exe",
+  "size": 30774112,
+  "sha256": "14B3E9A710A3FCF0BD9B55AB6B60412BD91227563F813FC49040CABC0209E0BD",
+  "signer_contains": "Python Software Foundation"
+}

@@ -12,7 +12,12 @@ STATUS_OCR_FAILED = "OCR_FAILED"
 STATUS_TAG_NOT_FOUND = "TAG_NOT_FOUND"
 STATUS_ERROR = "ERROR"
 
+CORRECTION_CACHE_READY = "READY"
+CORRECTION_CACHE_REVIEW_REQUIRED = "REVIEW_REQUIRED"
+CORRECTION_CACHE_FAILED = "FAILED"
+
 REPORT_COLUMNS = [
+    "item_id",
     "original_filename",
     "detected_tag_number",
     "ocr_text_raw",
@@ -25,6 +30,11 @@ REPORT_COLUMNS = [
     "background_mode",
     "transparent_filename",
     "background_notes",
+    "correction_cache_status",
+    "correction_cache_white_filename",
+    "correction_cache_transparent_filename",
+    "background_processing_seconds",
+    "correction_finalize_seconds",
 ]
 
 
@@ -40,8 +50,7 @@ class ProcessingSettings:
     hd_scale: int = 2
     remove_background: bool = True
     background_output_mode: str = "white_and_transparent"
-    background_model_name: str = "u2net"
-    background_max_side: int = 2200
+    ai_background_fallback_enabled: bool = True
     catalogue_layout_enabled: bool = True
     catalogue_canvas_width: int = 1200
     catalogue_canvas_height: int = 1500
@@ -63,11 +72,18 @@ class ParsedTag:
     raw_text: str = ""
     status: str = STATUS_OCR_FAILED
     notes: str = ""
+    evidence_count: int = 0
+    strong_evidence_count: int = 0
+    best_ocr_confidence: float = 0.0
+    score_margin: float = 0.0
+    best_source_rotation: str = ""
+    best_source_crop: str = ""
 
 
 @dataclass
 class ProcessingResult:
     original_filename: str
+    item_id: str = ""
     detected_tag_number: str = ""
     ocr_text_raw: str = ""
     confidence_score: float | str = 0.0
@@ -79,9 +95,15 @@ class ProcessingResult:
     background_mode: str = ""
     transparent_filename: str = ""
     background_notes: str = ""
+    correction_cache_status: str = ""
+    correction_cache_white_filename: str = ""
+    correction_cache_transparent_filename: str = ""
+    background_processing_seconds: float | str = ""
+    correction_finalize_seconds: float | str = ""
 
     def to_report_row(self) -> dict[str, Any]:
         return {
+            "item_id": self.item_id,
             "original_filename": self.original_filename,
             "detected_tag_number": self.detected_tag_number,
             "ocr_text_raw": self.ocr_text_raw,
@@ -94,6 +116,11 @@ class ProcessingResult:
             "background_mode": self.background_mode,
             "transparent_filename": self.transparent_filename,
             "background_notes": self.background_notes,
+            "correction_cache_status": self.correction_cache_status,
+            "correction_cache_white_filename": self.correction_cache_white_filename,
+            "correction_cache_transparent_filename": self.correction_cache_transparent_filename,
+            "background_processing_seconds": self.background_processing_seconds,
+            "correction_finalize_seconds": self.correction_finalize_seconds,
         }
 
 
@@ -102,13 +129,17 @@ class OutputPaths:
     root: Path
     processed_images: Path
     transparent_images: Path
+    compressed_images_20kb: Path
     review_required: Path
+    ai_review: Path
     background_review: Path
+    correction_cache: Path
     debug_crops: Path
     report_csv: Path
     full_zip: Path
     processed_zip: Path
     transparent_zip: Path
+    compressed_images_20kb_zip: Path
     debug_zip: Path
 
 
